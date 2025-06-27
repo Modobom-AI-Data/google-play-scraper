@@ -874,7 +874,7 @@ async function createDirectoryIfNotExists(dirPath: string) {
 serve(
   {
     fetch: app.fetch,
-    port: 5678,
+    port: 3001,
   },
   (info) => {
     console.log(
