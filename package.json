@@ -9,8 +9,7 @@
   "dependencies": {
     "@hono/node-server": "^1.14.4",
     "google-play-scraper": "^10.0.1",
-    "hono": "^4.8.1",
-    "csv-writer": "^1.6.0"
+    "hono": "^4.8.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",

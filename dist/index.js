@@ -4,12 +4,10 @@ import * as gplay from "google-play-scraper";
 import { writeFile } from "fs/promises";
 import { readFile } from "fs/promises";
 import path from "path";
-
 const app = new Hono();
-
 // Serve static HTML page
 app.get("/", (c) => {
-  const html = `
+    const html = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -644,242 +642,197 @@ app.get("/", (c) => {
 </body>
 </html>
   `;
-  return c.html(html);
+    return c.html(html);
 });
-
 // API endpoint for scraping
 app.post("/api/scrape", async (c) => {
-  const body = await c.req.json();
-  const { method, fields, fullDetail, throttle, ...params } = body;
-
-  // Set up Server-Sent Events for progress updates
-  const stream = new ReadableStream({
-    start(controller) {
-      const sendUpdate = (data: any) => {
-        controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
-      };
-
-      // Start scraping process
-      scrapeGames(method, params, fields, fullDetail, throttle, sendUpdate)
-        .then(() => {
-          controller.close();
-        })
-        .catch((error) => {
-          sendUpdate({ error: error.message });
-          controller.close();
-        });
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/plain",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+    const body = await c.req.json();
+    const { method, fields, fullDetail, throttle, ...params } = body;
+    // Set up Server-Sent Events for progress updates
+    const stream = new ReadableStream({
+        start(controller) {
+            const sendUpdate = (data) => {
+                controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
+            };
+            // Start scraping process
+            scrapeGames(method, params, fields, fullDetail, throttle, sendUpdate)
+                .then(() => {
+                controller.close();
+            })
+                .catch((error) => {
+                sendUpdate({ error: error.message });
+                controller.close();
+            });
+        },
+    });
+    return new Response(stream, {
+        headers: {
+            "Content-Type": "text/plain",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+        },
+    });
 });
-
 // Download endpoint for CSV files
 app.get("/download/:filename", async (c) => {
-  const filename = c.req.param("filename");
-  try {
-    const filePath = path.join(process.cwd(), "downloads", filename);
-    const fileContent = await readFile(filePath, "utf-8");
-
-    return new Response(fileContent, {
-      headers: {
-        "Content-Type": "text/csv",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-      },
-    });
-  } catch (error) {
-    return c.text("File not found", 404);
-  }
+    const filename = c.req.param("filename");
+    try {
+        const filePath = path.join(process.cwd(), "downloads", filename);
+        const fileContent = await readFile(filePath, "utf-8");
+        return new Response(fileContent, {
+            headers: {
+                "Content-Type": "text/csv",
+                "Content-Disposition": `attachment; filename="${filename}"`,
+            },
+        });
+    }
+    catch (error) {
+        return c.text("File not found", 404);
+    }
 });
-
 // Main scraping function
-async function scrapeGames(
-  method: string,
-  params: any,
-  fields: string[],
-  fullDetail: boolean,
-  throttle: number,
-  sendUpdate: (data: any) => void
-) {
-  try {
-    sendUpdate({ status: "Starting scrape...", progress: 0 });
-
-    let games: any[] = [];
-    let scrapeOptions: any = {
-      lang: "en",
-      country: "us",
-      fullDetail,
-    };
-
-    if (throttle > 0) {
-      scrapeOptions.throttle = throttle;
-    }
-
-    // Execute the appropriate scraping method
-    switch (method) {
-      case "list":
-        scrapeOptions = {
-          ...scrapeOptions,
-          collection:
-            gplay.collection[
-              params.collection as keyof typeof gplay.collection
-            ] || gplay.collection.TOP_FREE,
-          num: params.num || 50,
+async function scrapeGames(method, params, fields, fullDetail, throttle, sendUpdate) {
+    try {
+        sendUpdate({ status: "Starting scrape...", progress: 0 });
+        let games = [];
+        let scrapeOptions = {
+            lang: "en",
+            country: "us",
+            fullDetail,
         };
-        if (params.category) {
-          scrapeOptions.category =
-            gplay.category[params.category as keyof typeof gplay.category];
+        if (throttle > 0) {
+            scrapeOptions.throttle = throttle;
         }
-        sendUpdate({ status: "Fetching game list...", progress: 20 });
-        games = await gplay.list(scrapeOptions);
-        break;
-
-      case "search":
-        scrapeOptions = {
-          ...scrapeOptions,
-          term: params.term,
-          num: params.num || 20,
-          price: params.price || "all",
-        };
-        sendUpdate({
-          status: `Searching for "${params.term}"...`,
-          progress: 20,
-        });
-        games = await gplay.search(scrapeOptions);
-        break;
-
-      case "developer":
-        scrapeOptions = {
-          ...scrapeOptions,
-          devId: params.devId,
-          num: params.num || 20,
-        };
-        sendUpdate({
-          status: `Fetching games by ${params.devId}...`,
-          progress: 20,
-        });
-        games = await gplay.developer(scrapeOptions);
-        break;
-
-      case "category":
-        scrapeOptions = {
-          ...scrapeOptions,
-          collection:
-            gplay.collection[
-              params.collection as keyof typeof gplay.collection
-            ] || gplay.collection.TOP_FREE,
-          category:
-            gplay.category[params.category as keyof typeof gplay.category],
-          num: params.num || 50,
-        };
-        sendUpdate({ status: "Fetching games from category...", progress: 20 });
-        games = await gplay.list(scrapeOptions);
-        break;
-
-      default:
-        throw new Error("Invalid scraping method");
-    }
-
-    sendUpdate({ status: `Processing ${games.length} games...`, progress: 60 });
-
-    // Filter and process game data based on selected fields
-    const processedGames = games.map((game) => {
-      const filtered: any = {};
-      fields.forEach((field) => {
-        if (game[field] !== undefined) {
-          filtered[field] = game[field];
+        // Execute the appropriate scraping method
+        switch (method) {
+            case "list":
+                scrapeOptions = {
+                    ...scrapeOptions,
+                    collection: gplay.collection[params.collection] || gplay.collection.TOP_FREE,
+                    num: params.num || 50,
+                };
+                if (params.category) {
+                    scrapeOptions.category =
+                        gplay.category[params.category];
+                }
+                sendUpdate({ status: "Fetching game list...", progress: 20 });
+                games = await gplay.list(scrapeOptions);
+                break;
+            case "search":
+                scrapeOptions = {
+                    ...scrapeOptions,
+                    term: params.term,
+                    num: params.num || 20,
+                    price: params.price || "all",
+                };
+                sendUpdate({
+                    status: `Searching for "${params.term}"...`,
+                    progress: 20,
+                });
+                games = await gplay.search(scrapeOptions);
+                break;
+            case "developer":
+                scrapeOptions = {
+                    ...scrapeOptions,
+                    devId: params.devId,
+                    num: params.num || 20,
+                };
+                sendUpdate({
+                    status: `Fetching games by ${params.devId}...`,
+                    progress: 20,
+                });
+                games = await gplay.developer(scrapeOptions);
+                break;
+            case "category":
+                scrapeOptions = {
+                    ...scrapeOptions,
+                    collection: gplay.collection[params.collection] || gplay.collection.TOP_FREE,
+                    category: gplay.category[params.category],
+                    num: params.num || 50,
+                };
+                sendUpdate({ status: "Fetching games from category...", progress: 20 });
+                games = await gplay.list(scrapeOptions);
+                break;
+            default:
+                throw new Error("Invalid scraping method");
         }
-      });
-      return filtered;
-    });
-
-    sendUpdate({ status: "Generating CSV...", progress: 80 });
-
-    // Generate CSV
-    const timestamp = new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "_");
-    const filename = `google-play-games-${method}-${timestamp}.csv`;
-    const filePath = path.join(process.cwd(), "downloads", filename);
-
-    // Ensure downloads directory exists
-    await createDirectoryIfNotExists(path.dirname(filePath));
-
-    // Generate CSV content
-    const csvContent = generateCSV(processedGames, fields);
-    await writeFile(filePath, csvContent, "utf-8");
-
-    sendUpdate({
-      status: "Complete!",
-      progress: 100,
-      completed: true,
-      filename,
-      count: games.length,
-    });
-  } catch (error) {
-    console.error("Scraping error:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
-    sendUpdate({ error: `Scraping failed: ${errorMessage}` });
-  }
+        sendUpdate({ status: `Processing ${games.length} games...`, progress: 60 });
+        // Filter and process game data based on selected fields
+        const processedGames = games.map((game) => {
+            const filtered = {};
+            fields.forEach((field) => {
+                if (game[field] !== undefined) {
+                    filtered[field] = game[field];
+                }
+            });
+            return filtered;
+        });
+        sendUpdate({ status: "Generating CSV...", progress: 80 });
+        // Generate CSV
+        const timestamp = new Date()
+            .toISOString()
+            .replace(/[:.]/g, "-")
+            .replace("T", "_");
+        const filename = `google-play-games-${method}-${timestamp}.csv`;
+        const filePath = path.join(process.cwd(), "downloads", filename);
+        // Ensure downloads directory exists
+        await createDirectoryIfNotExists(path.dirname(filePath));
+        // Generate CSV content
+        const csvContent = generateCSV(processedGames, fields);
+        await writeFile(filePath, csvContent, "utf-8");
+        sendUpdate({
+            status: "Complete!",
+            progress: 100,
+            completed: true,
+            filename,
+            count: games.length,
+        });
+    }
+    catch (error) {
+        console.error("Scraping error:", error);
+        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+        sendUpdate({ error: `Scraping failed: ${errorMessage}` });
+    }
 }
-
 // Helper function to generate CSV content
-function generateCSV(data: any[], fields: string[]): string {
-  // Create header row
-  const headers = fields.map((field) => field.toUpperCase());
-  const csvRows = [headers.join(",")];
-
-  // Add data rows
-  data.forEach((item) => {
-    const row = fields.map((field) => {
-      let value = item[field] || "";
-      // Escape quotes and wrap in quotes if contains comma, quote, or newline
-      if (typeof value === "string") {
-        value = value.replace(/"/g, '""'); // Escape quotes
-        if (
-          value.includes(",") ||
-          value.includes('"') ||
-          value.includes("\n")
-        ) {
-          value = `"${value}"`;
-        }
-      }
-      return value;
+function generateCSV(data, fields) {
+    // Create header row
+    const headers = fields.map((field) => field.toUpperCase());
+    const csvRows = [headers.join(",")];
+    // Add data rows
+    data.forEach((item) => {
+        const row = fields.map((field) => {
+            let value = item[field] || "";
+            // Escape quotes and wrap in quotes if contains comma, quote, or newline
+            if (typeof value === "string") {
+                value = value.replace(/"/g, '""'); // Escape quotes
+                if (value.includes(",") ||
+                    value.includes('"') ||
+                    value.includes("\n")) {
+                    value = `"${value}"`;
+                }
+            }
+            return value;
+        });
+        csvRows.push(row.join(","));
     });
-    csvRows.push(row.join(","));
-  });
-
-  return csvRows.join("\n");
+    return csvRows.join("\n");
 }
-
 // Helper function to create directory if it doesn't exist
-async function createDirectoryIfNotExists(dirPath: string) {
-  try {
-    await readFile(dirPath);
-  } catch (error) {
-    // Directory doesn't exist, create it
-    const fs = await import("fs");
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
+async function createDirectoryIfNotExists(dirPath) {
+    try {
+        await readFile(dirPath);
+    }
+    catch (error) {
+        // Directory doesn't exist, create it
+        const fs = await import("fs");
+        fs.mkdirSync(dirPath, { recursive: true });
+    }
 }
-
-serve(
-  {
+serve({
     fetch: app.fetch,
     port: 5678,
-  },
-  (info) => {
-    console.log(
-      `🚀 Google Play Scraper running on http://localhost:${info.port}`
-    );
+}, (info) => {
+    console.log(`🚀 Google Play Scraper running on http://localhost:${info.port}`);
     console.log(`📊 Open your browser to start scraping game data`);
-  }
-);
+});
