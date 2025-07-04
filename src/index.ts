@@ -1,9 +1,12 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import * as gplay from "google-play-scraper";
+import * as gplayModule from "google-play-scraper";
 import { writeFile } from "fs/promises";
 import { readFile } from "fs/promises";
 import path from "path";
+
+// Access the default export correctly
+const gplay = (gplayModule as any).default || gplayModule;
 
 const app = new Hono();
 
